@@ -1,0 +1,48 @@
+{
+  "name": "mcp-radar",
+  "version": "0.1.0",
+  "description": "Discover, compare, and install MCP servers before you trust them with your tools.",
+  "type": "module",
+  "bin": {
+    "mcp-radar": "./src/server.js"
+  },
+  "scripts": {
+    "sync": "node src/cli.js sync",
+    "search": "node src/cli.js search",
+    "digest": "node src/cli.js digest",
+    "enrich:github": "node src/cli.js enrich-github 40",
+    "discover:github": "node src/cli.js discover-github 10",
+    "server": "node src/server.js",
+    "ui": "node src/ui.js",
+    "demo": "node examples/demo-client.js",
+    "check": "node --check src/registry.js && node --check src/server.js && node --check src/ui.js && node --check src/cli.js",
+    "print-config": "node scripts/print-config.js",
+    "install:claude": "node scripts/install-claude-desktop.js",
+    "install:codex": "node scripts/install-codex.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "registry",
+    "discovery",
+    "claude",
+    "codex"
+  ],
+  "homepage": "https://github.com/arthurchambat/mcp-radar#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arthurchambat/mcp-radar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arthurchambat/mcp-radar/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.1",
+    "zod": "^3.25.76"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}

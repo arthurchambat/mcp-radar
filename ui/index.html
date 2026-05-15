@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCP Radar</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local MCP Library</p>
+          <h1>MCP Radar</h1>
+          <p class="tagline">Discover, compare, and install MCP servers before you trust them with your tools.</p>
+        </div>
+        <div class="top-actions">
+          <button id="enrichButton">Enrich GitHub</button>
+          <button id="syncButton" class="primary">Sync Registry</button>
+        </div>
+      </header>
+
+      <section class="search-panel">
+        <div class="search-row">
+          <input id="queryInput" type="search" placeholder="Describe a workflow: manage GitHub issues, inspect Postgres safely, run ads reports..." autocomplete="off" />
+          <button id="searchButton">Search</button>
+          <button id="recommendButton">Recommend</button>
+        </div>
+        <div class="filters">
+          <label>Category<select id="categoryFilter"><option value="all">All</option></select></label>
+          <label>Install<select id="installFilter"><option value="all">All</option><option value="remote">Remote</option><option value="stdio">Stdio</option><option value="npm">npm</option><option value="pypi">PyPI</option></select></label>
+          <label>Auth<select id="authFilter"><option value="any">Any</option><option value="none">No required auth</option><option value="required">Requires auth</option></select></label>
+        </div>
+      </section>
+
+      <section class="status-strip">
+        <div><span id="totalCount">0</span><small>indexed MCPs</small></div>
+        <div><span id="syncedAt">Never</span><small>last sync</small></div>
+        <div><span id="sourceName">Official Registry</span><small>source</small></div>
+      </section>
+
+      <section class="content-grid">
+        <div>
+          <div class="section-heading"><h2>Results</h2><span id="resultCount">0 found</span></div>
+          <div id="results" class="cards"></div>
+        </div>
+        <aside>
+          <div class="section-heading"><h2>New MCPs</h2><span>30 days</span></div>
+          <div id="latestList" class="latest-list"></div>
+          <div class="section-heading aside-heading"><h2>Digest</h2><button id="digestButton" class="small-button">Generate</button></div>
+          <pre id="digestOutput" class="digest-output">Weekly digest will appear here.</pre>
+          <div class="section-heading aside-heading"><h2>Sources</h2><button id="sourcesButton" class="small-button">Check</button></div>
+          <div id="sourcesList" class="sources-list"></div>
+        </aside>
+      </section>
+    </main>
+
+    <template id="cardTemplate">
+      <article class="card">
+        <div class="card-main"><div><h3></h3><p class="name"></p></div><span class="auth-pill"></span></div>
+        <p class="description"></p>
+        <div class="score-grid"></div>
+        <div class="tag-row"></div>
+        <div class="meta-row"></div>
+        <div class="link-row"></div>
+        <details class="install-details"><summary>Install recipes</summary><div class="recipes"></div></details>
+      </article>
+    </template>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
