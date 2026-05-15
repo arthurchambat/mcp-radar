@@ -62,7 +62,7 @@ export async function fetchRegistryPage({ limit = 100, cursor } = {}) {
   const url = new URL(REGISTRY_API_URL);
   url.searchParams.set("limit", String(limit));
   if (cursor) url.searchParams.set("cursor", cursor);
-  const response = await fetch(url, { headers: apiHeaders() });
+  const response = await fetch(url, { headers: apiHeaders(), signal: AbortSignal.timeout(12000) });
   if (!response.ok) throw new Error(`Registry request failed: ${response.status} ${response.statusText}`);
   return response.json();
 }
@@ -235,7 +235,7 @@ export async function discoverFromGitHubTopics({ perPage = 10 } = {}) {
     url.searchParams.set("sort", "updated");
     url.searchParams.set("order", "desc");
     url.searchParams.set("per_page", String(perPage));
-    const response = await fetch(url, { headers: apiHeaders() });
+    const response = await fetch(url, { headers: apiHeaders(), signal: AbortSignal.timeout(12000) });
     if (!response.ok) continue;
     const data = await response.json();
     for (const repo of data.items || []) seen.set(repo.full_name, { name: repo.full_name, title: repo.name, description: repo.description || "", repositoryUrl: repo.html_url, stars: repo.stargazers_count || 0, forks: repo.forks_count || 0, openIssues: repo.open_issues_count || 0, updatedAt: repo.updated_at, pushedAt: repo.pushed_at, source: "github-topic" });
@@ -363,7 +363,7 @@ function parseGitHubRepo(url) {
 }
 
 async function fetchGitHubRepo(repo) {
-  const response = await fetch(`https://api.github.com/repos/${repo}`, { headers: apiHeaders() });
+  const response = await fetch(`https://api.github.com/repos/${repo}`, { headers: apiHeaders(), signal: AbortSignal.timeout(12000) });
   if (!response.ok) throw new Error(`GitHub request failed for ${repo}`);
   const data = await response.json();
   return { fullName: data.full_name, stars: data.stargazers_count || 0, forks: data.forks_count || 0, openIssues: data.open_issues_count || 0, pushedAt: data.pushed_at || null, updatedAt: data.updated_at || null, license: data.license?.spdx_id || null, archived: Boolean(data.archived) };

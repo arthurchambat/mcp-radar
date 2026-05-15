@@ -1,6 +1,7 @@
 const state = { categories: [], results: [], latest: [] };
 const elements = {
   syncButton: document.querySelector("#syncButton"),
+  ingestButton: document.querySelector("#ingestButton"),
   enrichButton: document.querySelector("#enrichButton"),
   searchButton: document.querySelector("#searchButton"),
   recommendButton: document.querySelector("#recommendButton"),
@@ -11,22 +12,33 @@ const elements = {
   installFilter: document.querySelector("#installFilter"),
   authFilter: document.querySelector("#authFilter"),
   totalCount: document.querySelector("#totalCount"),
+  mentionCount: document.querySelector("#mentionCount"),
+  candidateCount: document.querySelector("#candidateCount"),
   syncedAt: document.querySelector("#syncedAt"),
-  sourceName: document.querySelector("#sourceName"),
   resultCount: document.querySelector("#resultCount"),
   results: document.querySelector("#results"),
+  databaseModeButton: document.querySelector("#databaseModeButton"),
+  trendingButton: document.querySelector("#trendingButton"),
+  candidatesButton: document.querySelector("#candidatesButton"),
+  mentionsButton: document.querySelector("#mentionsButton"),
   latestList: document.querySelector("#latestList"),
   digestOutput: document.querySelector("#digestOutput"),
   sourcesList: document.querySelector("#sourcesList"),
-  cardTemplate: document.querySelector("#cardTemplate")
+  cardTemplate: document.querySelector("#cardTemplate"),
+  mentionTemplate: document.querySelector("#mentionTemplate")
 };
 
 elements.syncButton.addEventListener("click", syncRegistry);
+elements.ingestButton.addEventListener("click", ingestAllSources);
 elements.enrichButton.addEventListener("click", enrichGitHub);
 elements.searchButton.addEventListener("click", runSearch);
 elements.recommendButton.addEventListener("click", runRecommend);
 elements.digestButton.addEventListener("click", generateDigest);
 elements.sourcesButton.addEventListener("click", loadSources);
+elements.databaseModeButton.addEventListener("click", runSearch);
+elements.trendingButton.addEventListener("click", showTrending);
+elements.candidatesButton.addEventListener("click", showCandidates);
+elements.mentionsButton.addEventListener("click", showMentions);
 elements.queryInput.addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); });
 for (const filter of [elements.categoryFilter, elements.installFilter, elements.authFilter]) filter.addEventListener("change", runSearch);
 
@@ -41,8 +53,9 @@ async function bootstrap() {
 async function refreshStatus() {
   const status = await getJson("/api/status");
   elements.totalCount.textContent = status.total || 0;
+  elements.mentionCount.textContent = status.database?.mentions || 0;
+  elements.candidateCount.textContent = status.database?.candidates || 0;
   elements.syncedAt.textContent = status.syncedAt ? new Date(status.syncedAt).toLocaleString() : "Never";
-  elements.sourceName.textContent = status.source ? "Official Registry" : "Not synced";
 }
 
 async function refreshCategories() {
@@ -63,6 +76,18 @@ async function syncRegistry() {
   finally { elements.syncButton.disabled = false; elements.syncButton.textContent = "Sync Registry"; }
 }
 
+async function ingestAllSources() {
+  elements.ingestButton.disabled = true;
+  elements.ingestButton.textContent = "Ingesting...";
+  try {
+    await fetch("/api/ingest", { method: "POST" }).then(assertOk);
+    await bootstrap();
+  } finally {
+    elements.ingestButton.disabled = false;
+    elements.ingestButton.textContent = "Ingest All";
+  }
+}
+
 async function enrichGitHub() {
   elements.enrichButton.disabled = true;
   elements.enrichButton.textContent = "Enriching...";
@@ -71,8 +96,9 @@ async function enrichGitHub() {
 }
 
 async function runSearch() {
+  setMode(elements.databaseModeButton);
   const params = new URLSearchParams({ query: elements.queryInput.value, category: elements.categoryFilter.value, installType: elements.installFilter.value, auth: elements.authFilter.value, limit: "40" });
-  state.results = await getJson(`/api/search?${params}`);
+  state.results = await getJson(`/api/db/search?${params}`);
   renderResults();
 }
 
@@ -81,6 +107,38 @@ async function runRecommend() {
   if (!task) return runSearch();
   state.results = await getJson(`/api/recommend?${new URLSearchParams({ task })}`);
   renderResults();
+}
+
+async function showTrending() {
+  setMode(elements.trendingButton);
+  state.results = await getJson("/api/db/trending?days=14&limit=40");
+  renderResults();
+}
+
+async function showCandidates() {
+  setMode(elements.candidatesButton);
+  const candidates = await getJson("/api/db/candidates?limit=50");
+  renderMentions(candidates.map((item) => ({
+    title: item.title || item.extracted_name || "Candidate",
+    text: item.text || item.extracted_name || "",
+    source: item.source_name,
+    url: item.url,
+    score: item.confidence,
+    created_at: item.discovered_at
+  })), "candidates");
+}
+
+async function showMentions() {
+  setMode(elements.mentionsButton);
+  const mentions = await getJson("/api/db/mentions?limit=50");
+  renderMentions(mentions.map((item) => ({
+    title: item.title || "Mention",
+    text: item.text || "",
+    source: item.source_name,
+    url: item.url,
+    score: item.score,
+    created_at: item.created_at || item.discovered_at
+  })), "mentions");
 }
 
 async function refreshLatest() {
@@ -122,6 +180,26 @@ function renderResults() {
     return;
   }
   for (const server of state.results) elements.results.append(renderCard(server));
+}
+
+function renderMentions(items, label) {
+  elements.results.replaceChildren();
+  elements.resultCount.textContent = `${items.length} ${label}`;
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = `No ${label} found yet. Run Ingest All first.`;
+    elements.results.append(empty);
+    return;
+  }
+  for (const item of items) {
+    const node = elements.mentionTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector("h3").textContent = item.title;
+    node.querySelector(".description").textContent = stripHtml(item.text || "No text available.").slice(0, 450);
+    node.querySelector(".meta-row").textContent = `${item.source || "source"} | score ${item.score || 0} | ${formatDate(item.created_at)}`;
+    addLink(node.querySelector(".link-row"), item.url, "Open");
+    elements.results.append(node);
+  }
 }
 
 function renderCard(server) {
@@ -201,6 +279,11 @@ function addLink(container, url, label) {
   container.append(link);
 }
 
+function setMode(active) {
+  for (const button of [elements.databaseModeButton, elements.trendingButton, elements.candidatesButton, elements.mentionsButton]) button.classList.remove("active-mode");
+  active.classList.add("active-mode");
+}
+
 async function getJson(url) {
   const response = await fetch(url);
   await assertOk(response);
@@ -214,4 +297,10 @@ async function assertOk(response) {
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleDateString() : "unknown";
+}
+
+function stripHtml(value) {
+  const div = document.createElement("div");
+  div.innerHTML = value;
+  return div.textContent || div.innerText || "";
 }

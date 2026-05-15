@@ -15,6 +15,7 @@
           <p class="tagline">Discover, compare, and install MCP servers before you trust them with your tools.</p>
         </div>
         <div class="top-actions">
+          <button id="ingestButton">Ingest All</button>
           <button id="enrichButton">Enrich GitHub</button>
           <button id="syncButton" class="primary">Sync Registry</button>
         </div>
@@ -35,13 +36,20 @@
 
       <section class="status-strip">
         <div><span id="totalCount">0</span><small>indexed MCPs</small></div>
+        <div><span id="mentionCount">0</span><small>mentions</small></div>
+        <div><span id="candidateCount">0</span><small>candidates</small></div>
         <div><span id="syncedAt">Never</span><small>last sync</small></div>
-        <div><span id="sourceName">Official Registry</span><small>source</small></div>
       </section>
 
       <section class="content-grid">
         <div>
           <div class="section-heading"><h2>Results</h2><span id="resultCount">0 found</span></div>
+          <div class="mode-row">
+            <button id="databaseModeButton" class="small-button active-mode">Database Search</button>
+            <button id="trendingButton" class="small-button">Trending</button>
+            <button id="candidatesButton" class="small-button">Unregistered Candidates</button>
+            <button id="mentionsButton" class="small-button">Mentions</button>
+          </div>
           <div id="results" class="cards"></div>
         </div>
         <aside>
@@ -64,6 +72,15 @@
         <div class="meta-row"></div>
         <div class="link-row"></div>
         <details class="install-details"><summary>Install recipes</summary><div class="recipes"></div></details>
+      </article>
+    </template>
+
+    <template id="mentionTemplate">
+      <article class="card mention-card">
+        <h3></h3>
+        <p class="description"></p>
+        <div class="meta-row"></div>
+        <div class="link-row"></div>
       </article>
     </template>
     <script type="module" src="/app.js"></script>

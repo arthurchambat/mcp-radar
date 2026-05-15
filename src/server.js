@@ -16,12 +16,33 @@ import {
   searchMcps,
   syncOfficialRegistry
 } from "./registry.js";
+import { getRecentMentions, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const server = new McpServer({ name: "mcp-radar", version: "0.1.0" });
 
 server.tool("sync_mcp_registry", "Refresh the local MCP index from the official MCP Registry.", { limit: z.number().int().min(1).max(500).default(100), maxPages: z.number().int().min(1).max(100).default(20) }, async (args) => {
   const index = await syncOfficialRegistry(args);
   return textResult(`Synced ${index.total} MCP servers from ${index.source} at ${index.syncedAt}.`);
+});
+
+server.tool("ingest_mcp_sources", "Ingest official registry, GitHub, npm, Hacker News, and Reddit into the SQLite database.", {
+  registryPages: z.number().int().min(1).max(100).default(20),
+  githubPerPage: z.number().int().min(1).max(50).default(20),
+  npmSize: z.number().int().min(1).max(100).default(25),
+  hnHits: z.number().int().min(1).max(100).default(20),
+  redditLimit: z.number().int().min(1).max(100).default(20)
+}, async (args) => jsonResult(await ingestAll(args)));
+
+server.tool("ingest_one_source", "Ingest one source into the SQLite database.", {
+  source: z.enum(["registry", "github", "npm", "hacker-news", "reddit"])
+}, async ({ source }) => {
+  const db = openDatabase();
+  if (source === "registry") return jsonResult(await ingestOfficialRegistry(db));
+  if (source === "github") return jsonResult(await ingestGitHub(db));
+  if (source === "npm") return jsonResult(await ingestNpm(db));
+  if (source === "hacker-news") return jsonResult(await ingestHackerNews(db));
+  return jsonResult(await ingestReddit(db));
 });
 
 server.tool("enrich_mcp_github_metadata", "Enrich indexed MCPs with GitHub stars, forks, open issues, license, and push recency.", { maxRepos: z.number().int().min(1).max(60).default(30) }, async ({ maxRepos }) => {
@@ -33,6 +54,29 @@ server.tool("search_mcps", "Search MCP servers by app, workflow, category, insta
   const index = await loadIndex();
   return jsonResult(searchMcps(index, args));
 });
+
+server.tool("search_mcp_database", "Search the SQLite MCP database across registry, GitHub, npm, and mention-enriched sources.", {
+  query: z.string().default(""),
+  category: z.string().default("all"),
+  installType: z.string().default("all"),
+  auth: z.enum(["any", "required", "none"]).default("any"),
+  limit: z.number().int().min(1).max(50).default(10)
+}, async (args) => jsonResult(searchServers(openDatabase(), args)));
+
+server.tool("get_trending_mcps", "List trending MCPs based on mentions, quality, GitHub signals, and recency.", {
+  days: z.number().int().min(1).max(365).default(14),
+  limit: z.number().int().min(1).max(50).default(10)
+}, async (args) => jsonResult(getTrendingServers(openDatabase(), args)));
+
+server.tool("get_unregistered_mcp_candidates", "List MCP candidates found outside the official registry.", {
+  limit: z.number().int().min(1).max(100).default(25)
+}, async (args) => jsonResult(getUnregisteredCandidates(openDatabase(), args)));
+
+server.tool("get_mcp_mentions", "List recent Reddit/Hacker News/social mentions captured by MCP Radar.", {
+  limit: z.number().int().min(1).max(100).default(25)
+}, async (args) => jsonResult(getRecentMentions(openDatabase(), args)));
+
+server.tool("get_mcp_database_stats", "Return SQLite database counts for servers, mentions, raw candidates, and sources.", {}, async () => jsonResult(getStats(openDatabase())));
 
 server.tool("find_latest_mcps", "List recently published or updated MCP servers.", { days: z.number().int().min(1).max(365).default(14), category: z.string().optional(), limit: z.number().int().min(1).max(50).default(10) }, async (args) => {
   const index = await loadIndex();

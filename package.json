@@ -8,14 +8,25 @@
   },
   "scripts": {
     "sync": "node src/cli.js sync",
+    "ingest": "node src/cli.js ingest",
+    "ingest:registry": "node src/cli.js ingest-registry",
+    "ingest:github": "node src/cli.js ingest-github 20",
+    "ingest:npm": "node src/cli.js ingest-npm 25",
+    "ingest:hn": "node src/cli.js ingest-hn 20",
+    "ingest:reddit": "node src/cli.js ingest-reddit 20",
     "search": "node src/cli.js search",
+    "db:search": "node src/cli.js db-search",
+    "trending": "node src/cli.js trending",
+    "candidates": "node src/cli.js candidates",
+    "mentions": "node src/cli.js mentions",
+    "stats": "node src/cli.js stats",
     "digest": "node src/cli.js digest",
     "enrich:github": "node src/cli.js enrich-github 40",
     "discover:github": "node src/cli.js discover-github 10",
     "server": "node src/server.js",
     "ui": "node src/ui.js",
     "demo": "node examples/demo-client.js",
-    "check": "node --check src/registry.js && node --check src/server.js && node --check src/ui.js && node --check src/cli.js",
+    "check": "node --check src/registry.js && node --check src/db.js && node --check src/ingest.js && node --check src/server.js && node --check src/ui.js && node --check src/cli.js",
     "print-config": "node scripts/print-config.js",
     "install:claude": "node scripts/install-claude-desktop.js",
     "install:codex": "node scripts/install-codex.js"
@@ -40,6 +51,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.1",
+    "better-sqlite3": "^12.10.0",
     "zod": "^3.25.76"
   },
   "engines": {

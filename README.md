@@ -4,6 +4,14 @@
 
 MCP Radar is a local discovery layer for Model Context Protocol servers. It syncs the official MCP Registry, builds a searchable index, scores servers by fit/trust/install friction, generates install recipes, and creates a weekly digest of new MCPs.
 
+It also includes a SQLite database mode that ingests:
+
+- official MCP Registry servers
+- GitHub MCP topic repositories
+- npm MCP package candidates
+- Hacker News mentions
+- Reddit mentions
+
 ## What You Can Ask
 
 - "What new MCPs came out this week?"
@@ -35,6 +43,7 @@ MCP Radar starts with the official MCP Registry and turns it into a practical lo
 ```bash
 npm install
 npm run sync
+npm run ingest
 npm run enrich:github
 npm run ui
 ```
@@ -90,8 +99,15 @@ npm run print-config
 ## MCP Tools
 
 - `sync_mcp_registry` refreshes the local index from the official registry.
+- `ingest_mcp_sources` fills the SQLite database from registry, GitHub, npm, Hacker News, and Reddit.
+- `ingest_one_source` refreshes a single source.
 - `enrich_mcp_github_metadata` adds stars, forks, open issues, license, and push recency where GitHub metadata is available.
 - `search_mcps` searches by app, use case, category, install type, or auth friction.
+- `search_mcp_database` searches the larger SQLite database.
+- `get_trending_mcps` ranks servers by mentions, quality, GitHub signals, and recency.
+- `get_unregistered_mcp_candidates` shows candidates found outside the official registry.
+- `get_mcp_mentions` lists recent Reddit/Hacker News mentions.
+- `get_mcp_database_stats` returns database counts.
 - `find_latest_mcps` lists recently published MCPs.
 - `recommend_mcp_for_task` turns a plain-language task into a shortlist.
 - `generate_mcp_digest` creates a Markdown weekly digest with top picks and a LinkedIn draft.
@@ -115,6 +131,12 @@ GitHub enrichment is capped by default because unauthenticated GitHub API calls 
 
 ```bash
 npm run sync
+npm run ingest
+npm run db:search -- "postgres"
+npm run trending
+npm run candidates
+npm run mentions
+npm run stats
 npm run enrich:github
 npm run search -- "ads reporting"
 node src/cli.js latest
@@ -135,7 +157,20 @@ Additional source hooks:
 
 - GitHub topic search for `model-context-protocol`
 - GitHub topic search for `mcp-server`
+- npm registry search for installable package candidates
+- Hacker News search for launch/technical discussion mentions
+- Reddit search for builder demand signals
 - Smithery, Glama, and PulseMCP listed as future directory integrations pending API and usage review
+
+## Database Model
+
+MCP Radar separates confirmed servers from noisy discovery signals:
+
+- `mcp_servers`: normalized server records.
+- `install_options`: npm, PyPI, stdio, and remote install paths.
+- `mentions`: Reddit/Hacker News/social proof and demand signals.
+- `raw_candidates`: possible MCPs found outside the official registry.
+- `sources`: ingestion source metadata and sync timestamps.
 
 ## Example LinkedIn Post
 

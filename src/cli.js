@@ -1,11 +1,35 @@
 #!/usr/bin/env node
 import { discoverFromGitHubTopics, enrichIndexWithGitHub, generateWeeklyDigest, latestMcps, loadIndex, searchMcps, syncOfficialRegistry } from "./registry.js";
+import { getRecentMentions, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const [command, ...args] = process.argv.slice(2);
 
 if (command === "sync") {
   const index = await syncOfficialRegistry();
   console.log(`Synced ${index.total} MCP servers from the official registry.`);
+} else if (command === "ingest") {
+  console.log(JSON.stringify(await ingestAll(), null, 2));
+} else if (command === "ingest-registry") {
+  console.log(JSON.stringify(await ingestOfficialRegistry(), null, 2));
+} else if (command === "ingest-github") {
+  console.log(JSON.stringify(await ingestGitHub(undefined, { perPage: Number(args[0] || 20) }), null, 2));
+} else if (command === "ingest-npm") {
+  console.log(JSON.stringify(await ingestNpm(undefined, { size: Number(args[0] || 25) }), null, 2));
+} else if (command === "ingest-hn") {
+  console.log(JSON.stringify(await ingestHackerNews(undefined, { hitsPerQuery: Number(args[0] || 20) }), null, 2));
+} else if (command === "ingest-reddit") {
+  console.log(JSON.stringify(await ingestReddit(undefined, { limit: Number(args[0] || 20) }), null, 2));
+} else if (command === "db-search") {
+  printResults(searchServers(openDatabase(), { query: args.join(" "), limit: 10 }));
+} else if (command === "trending") {
+  printResults(getTrendingServers(openDatabase(), { days: Number(args[0] || 14), limit: 10 }));
+} else if (command === "candidates") {
+  console.log(JSON.stringify(getUnregisteredCandidates(openDatabase(), { limit: Number(args[0] || 25) }), null, 2));
+} else if (command === "mentions") {
+  console.log(JSON.stringify(getRecentMentions(openDatabase(), { limit: Number(args[0] || 25) }), null, 2));
+} else if (command === "stats") {
+  console.log(JSON.stringify(getStats(openDatabase()), null, 2));
 } else if (command === "search") {
   printResults(searchMcps(await loadIndex(), { query: args.join(" "), limit: 10 }));
 } else if (command === "latest") {
@@ -18,7 +42,7 @@ if (command === "sync") {
 } else if (command === "discover-github") {
   console.log(JSON.stringify(await discoverFromGitHubTopics({ perPage: Number(args[0] || 10) }), null, 2));
 } else {
-  console.log("Usage: npm run sync | npm run search -- \"postgres\" | npm run digest | npm run enrich:github");
+  console.log("Usage: npm run ingest | npm run db-search -- \"postgres\" | npm run trending | npm run digest");
 }
 
 function printResults(results) {
