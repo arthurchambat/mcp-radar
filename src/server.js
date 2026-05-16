@@ -16,7 +16,7 @@ import {
   searchMcps,
   syncOfficialRegistry
 } from "./registry.js";
-import { getRecentMentions, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
 import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const server = new McpServer({ name: "mcp-radar", version: "0.1.0" });
@@ -75,6 +75,13 @@ server.tool("get_unregistered_mcp_candidates", "List MCP candidates found outsid
 server.tool("get_mcp_mentions", "List recent Reddit/Hacker News/social mentions captured by MCP Radar.", {
   limit: z.number().int().min(1).max(100).default(25)
 }, async (args) => jsonResult(getRecentMentions(openDatabase(), args)));
+
+server.tool("get_mcp_risk_report", "Inspect one MCP and return a plain-English trust and access risk report before installing it.", {
+  name: z.string().min(1)
+}, async ({ name }) => {
+  const report = getRiskReport(openDatabase(), { name });
+  return report ? jsonResult(report) : textResult(`No MCP found for "${name}".`);
+});
 
 server.tool("get_mcp_database_stats", "Return SQLite database counts for servers, mentions, raw candidates, and sources.", {}, async () => jsonResult(getStats(openDatabase())));
 

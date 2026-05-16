@@ -211,7 +211,8 @@ function renderCard(server) {
   auth.textContent = server.authRequired ? "Auth required" : "Low friction";
   auth.classList.add(server.authRequired ? "required" : "open");
   const scoreGrid = node.querySelector(".score-grid");
-  for (const [label, value] of [["Fit", server.scores?.fit ?? "-"], ["Quality", server.qualityScore ?? "-"], ["Trust", server.trustScore ?? "-"], ["Install", server.installFriction || "-"]]) {
+  const risk = server.riskReport || {};
+  for (const [label, value] of [["Risk", risk.level || "-"], ["Quality", server.qualityScore ?? "-"], ["Trust", server.trustScore ?? "-"], ["Install", server.installFriction || "-"]]) {
     const score = document.createElement("div");
     score.className = "score";
     score.innerHTML = `<strong>${value}</strong><span>${label}</span>`;
@@ -229,6 +230,9 @@ function renderCard(server) {
   addLink(linkRow, server.repositoryUrl, "Repository");
   addLink(linkRow, server.websiteUrl, "Website");
   if (server.remotes?.[0]?.url) addLink(linkRow, server.remotes[0].url, "Remote endpoint");
+
+  renderRiskReport(node.querySelector(".risk-report"), server);
+
   const recipes = node.querySelector(".recipes");
   if (!server.installRecipes?.length) {
     const empty = document.createElement("p");
@@ -245,6 +249,60 @@ function renderCard(server) {
     }
   }
   return node;
+}
+
+function renderRiskReport(container, server) {
+  const report = server.riskReport;
+  if (!report) {
+    container.textContent = "No risk report available yet. Run database ingestion first.";
+    return;
+  }
+
+  const head = document.createElement("div");
+  head.className = "risk-head";
+  const level = document.createElement("span");
+  level.className = `risk-level risk-${report.level}`;
+  level.textContent = report.level;
+  const score = document.createElement("span");
+  score.className = "risk-score";
+  score.textContent = `${report.riskScore}/100 risk`;
+  head.append(level, score);
+
+  const summary = document.createElement("p");
+  summary.className = "risk-summary";
+  summary.textContent = report.summary;
+
+  const access = document.createElement("ul");
+  access.className = "risk-list";
+  for (const item of report.access || []) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    access.append(li);
+  }
+
+  const flags = document.createElement("ul");
+  flags.className = "risk-list";
+  for (const item of (report.flags || []).slice(0, 5)) {
+    const li = document.createElement("li");
+    li.className = "risk-flag";
+    const strong = document.createElement("strong");
+    strong.textContent = `${item.severity}: ${item.title}`;
+    li.append(strong, document.createTextNode(` — ${item.description}`));
+    flags.append(li);
+  }
+
+  const recommendation = document.createElement("p");
+  recommendation.className = "risk-recommendation";
+  recommendation.textContent = report.recommendation;
+
+  container.append(head, summary, labelNode("Access hints"), access, labelNode("Flags"), flags, labelNode("Recommendation"), recommendation);
+}
+
+function labelNode(text) {
+  const label = document.createElement("div");
+  label.className = "recipe-label";
+  label.textContent = text;
+  return label;
 }
 
 function renderLatest() {

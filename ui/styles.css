@@ -54,8 +54,18 @@ h3 { margin-bottom: 4px; font-size: 18px; }
 .auth-pill.open { background: #e9f6f0; color: var(--accent-dark); }
 .meta-row, .link-row { margin-top: 12px; font-size: 13px; }
 .link-row a, .source-item a { color: var(--blue); font-weight: 700; text-decoration: none; }
-.install-details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-.install-details summary { cursor: pointer; color: var(--blue); font-weight: 750; }
+.install-details, .risk-details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.install-details summary, .risk-details summary { cursor: pointer; color: var(--blue); font-weight: 750; }
+.risk-report { display: grid; gap: 10px; margin-top: 10px; }
+.risk-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.risk-level { display: inline-flex; align-items: center; min-height: 28px; border-radius: 999px; padding: 0 10px; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.risk-low { background: #e9f6f0; color: var(--accent-dark); }
+.risk-medium { background: #fff6da; color: #7c5b00; }
+.risk-high { background: #ffecec; color: #9b1c1c; }
+.risk-score { color: var(--muted); font-size: 13px; font-weight: 750; }
+.risk-summary, .risk-recommendation { margin: 0; color: #333942; line-height: 1.45; }
+.risk-list { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: #333942; }
+.risk-flag strong { color: var(--ink); }
 .recipes { display: grid; gap: 8px; margin-top: 10px; }
 .recipe-label { color: var(--muted); font-size: 12px; font-weight: 750; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -4,6 +4,8 @@
 
 MCP Radar is a local discovery layer for Model Context Protocol servers. It syncs the official MCP Registry, builds a searchable index, scores servers by fit/trust/install friction, generates install recipes, and creates a weekly digest of new MCPs.
 
+The main product angle is inspection before installation: every database-backed MCP gets a risk report with access hints, risk flags, evidence, and a plain-English recommendation.
+
 It also includes a SQLite database mode that ingests:
 
 - official MCP Registry servers
@@ -107,6 +109,7 @@ npm run print-config
 - `get_trending_mcps` ranks servers by mentions, quality, GitHub signals, and recency.
 - `get_unregistered_mcp_candidates` shows candidates found outside the official registry.
 - `get_mcp_mentions` lists recent Reddit/Hacker News mentions.
+- `get_mcp_risk_report` explains trust and access risk before installing an MCP.
 - `get_mcp_database_stats` returns database counts.
 - `find_latest_mcps` lists recently published MCPs.
 - `recommend_mcp_for_task` turns a plain-language task into a shortlist.
@@ -136,6 +139,7 @@ npm run db:search -- "postgres"
 npm run trending
 npm run candidates
 npm run mentions
+npm run risk -- "capital.hove/read-only-local-postgres-mcp-server"
 npm run stats
 npm run enrich:github
 npm run search -- "ads reporting"
@@ -171,6 +175,28 @@ MCP Radar separates confirmed servers from noisy discovery signals:
 - `mentions`: Reddit/Hacker News/social proof and demand signals.
 - `raw_candidates`: possible MCPs found outside the official registry.
 - `sources`: ingestion source metadata and sync timestamps.
+
+## Risk Reports
+
+Risk reports are generated from available metadata. They are not a sandbox execution guarantee yet.
+
+Current signals:
+
+- remote endpoint vs local package execution
+- required credentials
+- database, filesystem, shell, browser, email, payment, and write-action keywords
+- official registry presence
+- source repository availability
+- GitHub stars and push recency
+- quality/trust scores
+
+Example output:
+
+```text
+Risk: medium
+Access hints: local package execution, database access
+Recommendation: Good candidate for controlled testing. Prefer least-privilege API keys and read-only scopes where possible.
+```
 
 ## Example LinkedIn Post
 

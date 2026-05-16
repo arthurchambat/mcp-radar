@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverFromGitHubTopics, enrichIndexWithGitHub, generateWeeklyDigest, getDiscoverySources, getMcpDetails, latestMcps, listCategories, loadIndex, recommendForTask, searchMcps, syncOfficialRegistry } from "./registry.js";
-import { getRecentMentions, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
 import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +32,10 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === "/api/db/trending") return sendJson(response, getTrendingServers(openDatabase(), { days: Number(url.searchParams.get("days") || 14), limit: Number(url.searchParams.get("limit") || 30) }));
     if (url.pathname === "/api/db/candidates") return sendJson(response, getUnregisteredCandidates(openDatabase(), { limit: Number(url.searchParams.get("limit") || 50) }));
     if (url.pathname === "/api/db/mentions") return sendJson(response, getRecentMentions(openDatabase(), { limit: Number(url.searchParams.get("limit") || 50) }));
+    if (url.pathname === "/api/db/risk") {
+      const report = getRiskReport(openDatabase(), { name: url.searchParams.get("name") || "" });
+      return report ? sendJson(response, report) : sendJson(response, { error: "Not found" }, 404);
+    }
     if (url.pathname === "/api/db/stats") return sendJson(response, getStats(openDatabase()));
     if (url.pathname === "/api/latest") return sendJson(response, latestMcps(await loadIndex(), { days: Number(url.searchParams.get("days") || 30), category: url.searchParams.get("category") || "all", limit: Number(url.searchParams.get("limit") || 30) }));
     if (url.pathname === "/api/recommend") return sendJson(response, recommendForTask(await loadIndex(), { task: url.searchParams.get("task") || "", limit: 8 }));

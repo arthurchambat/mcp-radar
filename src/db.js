@@ -302,6 +302,26 @@ export function searchServers(db, { query = "", category = "all", installType = 
     .map(({ server, score }) => ({ ...server, fitScore: score }));
 }
 
+export function getRiskReport(db, { name }) {
+  const target = String(name || "").toLowerCase();
+  const row = db.prepare(`
+    SELECT s.*,
+      GROUP_CONCAT(DISTINCT c.name) AS categories,
+      GROUP_CONCAT(DISTINCT io.type) AS install_types,
+      COUNT(DISTINCT m.id) AS mention_count,
+      COALESCE(SUM(m.score), 0) AS mention_score
+    FROM mcp_servers s
+    LEFT JOIN server_categories sc ON sc.server_id = s.id
+    LEFT JOIN categories c ON c.id = sc.category_id
+    LEFT JOIN install_options io ON io.server_id = s.id
+    LEFT JOIN mentions m ON m.server_id = s.id
+    WHERE LOWER(s.canonical_name) = ? OR LOWER(s.title) = ?
+    GROUP BY s.id
+  `).get(target, target);
+  if (!row) return null;
+  return buildRiskReport(hydrateServerRow(row), parseJson(row.metadata_json));
+}
+
 export function getTrendingServers(db, { days = 14, limit = 30 } = {}) {
   const since = new Date(Date.now() - Number(days) * 86400000).toISOString();
   return db.prepare(`
@@ -416,7 +436,7 @@ function replaceInstallOptions(db, serverId, server) {
 
 function hydrateServerRow(row) {
   const metadata = parseJson(row.metadata_json);
-  return {
+  const server = {
     id: row.id,
     name: row.canonical_name,
     title: row.title,
@@ -443,6 +463,128 @@ function hydrateServerRow(row) {
     installTypes: row.install_types ? row.install_types.split(",") : metadata.installTypes || ["unknown"],
     installRecipes: metadata.installRecipes || []
   };
+  return { ...server, riskReport: buildRiskReport(server, metadata) };
+}
+
+function buildRiskReport(server, metadata = {}) {
+  const text = `${server.name} ${server.title} ${server.description} ${server.categories.join(" ")}`.toLowerCase();
+  const flags = [];
+  const access = [];
+  let risk = 28;
+
+  if (server.installTypes.includes("remote")) {
+    risk += 15;
+    access.push("remote endpoint");
+    flags.push(flag("remote-endpoint", "Remote MCP endpoint", "The MCP runs behind a remote URL. Review provider trust, data handling, and auth flow before sending sensitive context.", "medium"));
+  }
+
+  if (server.installTypes.includes("npm") || server.installTypes.includes("pypi") || server.installTypes.includes("oci")) {
+    risk += 8;
+    access.push("local package execution");
+    flags.push(flag("local-package", "Local package execution", "Installing this MCP may execute package code on the user's machine.", "medium"));
+  }
+
+  if (server.authRequired) {
+    risk += 12;
+    access.push("credentials required");
+    flags.push(flag("credentials", "Requires credentials", "The MCP likely needs API keys or account tokens. Avoid production credentials until verified.", "medium"));
+  }
+
+  const capabilityRules = [
+    ["filesystem", /file|filesystem|folder|directory|local disk|read files|write files/, "Can access files", "The description suggests local file or filesystem access.", "high"],
+    ["shell", /shell|terminal|command|execute|subprocess|cli|process/, "May run commands", "The description suggests command execution or CLI control.", "high"],
+    ["database", /postgres|mysql|sqlite|database|sql|warehouse|redis|mongo/, "Database access", "The MCP may access databases or query structured data.", "high"],
+    ["email-send", /send email|gmail|smtp|mailbox|inbox|email/, "Email access", "The MCP may access or act on email data.", "medium"],
+    ["payments", /stripe|payment|invoice|billing|checkout|subscription/, "Payment or billing access", "The MCP may touch financial or billing systems.", "high"],
+    ["browser", /browser|crawl|scrape|web automation|puppeteer|playwright/, "Browser or web automation", "The MCP may browse, scrape, or automate web sessions.", "medium"],
+    ["write-actions", /create|update|delete|edit|write|modify|send|publish|deploy/, "Write-capable workflow", "The MCP description includes verbs that suggest changing external state.", "medium"]
+  ];
+
+  for (const [id, pattern, title, description, severity] of capabilityRules) {
+    if (pattern.test(text)) {
+      risk += severity === "high" ? 14 : 8;
+      access.push(title.toLowerCase());
+      flags.push(flag(id, title, description, severity));
+    }
+  }
+
+  if (!server.registryPresent) {
+    risk += 12;
+    flags.push(flag("not-in-registry", "Not in official registry", "This candidate was found from GitHub/npm or another source, not the official MCP Registry.", "medium"));
+  }
+
+  if (!server.repositoryUrl) {
+    risk += 10;
+    flags.push(flag("no-repository", "No repository link", "No source repository was detected, which makes auditing harder.", "medium"));
+  }
+
+  if (server.githubPushedAt) {
+    const ageDays = (Date.now() - new Date(server.githubPushedAt).getTime()) / 86400000;
+    if (ageDays > 365) {
+      risk += 12;
+      flags.push(flag("stale-repo", "Repository looks stale", "GitHub push activity is more than a year old.", "medium"));
+    } else if (ageDays <= 45) {
+      risk -= 8;
+    }
+  }
+
+  if (server.githubStars >= 100) risk -= 8;
+  if (server.githubStars >= 1000) risk -= 8;
+  if (server.registryPresent) risk -= 8;
+  if (server.trustScore >= 80) risk -= 10;
+  if (server.qualityScore >= 85) risk -= 6;
+
+  const riskScore = clamp(Math.round(risk), 0, 100);
+  const level = riskScore >= 70 ? "high" : riskScore >= 42 ? "medium" : "low";
+  const uniqueAccess = [...new Set(access)];
+  const summary = buildRiskSummary(level, server);
+
+  return {
+    level,
+    riskScore,
+    summary,
+    recommendation: buildRiskRecommendation(level, server),
+    access: uniqueAccess.length ? uniqueAccess : ["no sensitive access detected from metadata"],
+    flags: dedupeFlags(flags),
+    evidence: {
+      registryPresent: server.registryPresent,
+      installTypes: server.installTypes,
+      authRequired: server.authRequired,
+      repositoryUrl: server.repositoryUrl,
+      websiteUrl: server.websiteUrl,
+      githubStars: server.githubStars,
+      githubPushedAt: server.githubPushedAt,
+      qualityScore: server.qualityScore,
+      trustScore: server.trustScore,
+      mentionCount: server.mentionCount
+    }
+  };
+}
+
+function buildRiskSummary(level, server) {
+  if (level === "high") return `${server.title} has high-risk access signals. Inspect it carefully before connecting credentials, local files, databases, payments, or production systems.`;
+  if (level === "medium") return `${server.title} has some trust or access tradeoffs. It may be fine for testing, but review credentials, remote endpoints, and write actions first.`;
+  return `${server.title} looks relatively low-risk from available metadata, but it has not been sandbox-verified by MCP Radar yet.`;
+}
+
+function buildRiskRecommendation(level, server) {
+  if (level === "high") return "Use a throwaway account or local sandbox first. Do not connect production credentials until the MCP is manually verified.";
+  if (level === "medium") return "Good candidate for controlled testing. Prefer least-privilege API keys and read-only scopes where possible.";
+  if (server.registryPresent) return "Reasonable to try in a non-production environment. Still review the install command and requested credentials.";
+  return "Promising candidate, but verify source and package ownership before installing.";
+}
+
+function flag(id, title, description, severity) {
+  return { id, title, description, severity };
+}
+
+function dedupeFlags(flags) {
+  const seen = new Set();
+  return flags.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
 
 function scoreSearch(server, query) {
@@ -465,4 +607,8 @@ function parseJson(value) {
   } catch {
     return {};
   }
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }

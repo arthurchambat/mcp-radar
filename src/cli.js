@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { discoverFromGitHubTopics, enrichIndexWithGitHub, generateWeeklyDigest, latestMcps, loadIndex, searchMcps, syncOfficialRegistry } from "./registry.js";
-import { getRecentMentions, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
 import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const [command, ...args] = process.argv.slice(2);
@@ -28,6 +28,9 @@ if (command === "sync") {
   console.log(JSON.stringify(getUnregisteredCandidates(openDatabase(), { limit: Number(args[0] || 25) }), null, 2));
 } else if (command === "mentions") {
   console.log(JSON.stringify(getRecentMentions(openDatabase(), { limit: Number(args[0] || 25) }), null, 2));
+} else if (command === "risk") {
+  const report = getRiskReport(openDatabase(), { name: args.join(" ") });
+  console.log(report ? JSON.stringify(report, null, 2) : "No MCP found for that name.");
 } else if (command === "stats") {
   console.log(JSON.stringify(getStats(openDatabase()), null, 2));
 } else if (command === "search") {

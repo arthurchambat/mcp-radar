@@ -19,6 +19,7 @@
     "trending": "node src/cli.js trending",
     "candidates": "node src/cli.js candidates",
     "mentions": "node src/cli.js mentions",
+    "risk": "node src/cli.js risk",
     "stats": "node src/cli.js stats",
     "digest": "node src/cli.js digest",
     "enrich:github": "node src/cli.js enrich-github 40",
