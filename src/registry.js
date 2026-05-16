@@ -1,25 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inferCategoriesFromText } from "./taxonomy.js";
 
 export const REGISTRY_API_URL = process.env.MCP_RADAR_REGISTRY_URL || "https://registry.modelcontextprotocol.io/v0/servers";
 export const GITHUB_SEARCH_URL = "https://api.github.com/search/repositories";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_INDEX_PATH = path.resolve(__dirname, "../data/mcp-index.json");
-
-const CATEGORY_RULES = [
-  ["ads-growth", ["ads", "campaign", "marketing", "growth", "gtm", "seo", "keyword", "linkedin", "meta ads", "google ads"]],
-  ["devtools-code", ["github", "gitlab", "repository", "code", "deploy", "vercel", "ci", "debug", "logs", "issue", "pull request"]],
-  ["database-storage", ["postgres", "mysql", "database", "sql", "supabase", "redis", "mongodb", "storage", "warehouse"]],
-  ["productivity-docs", ["notion", "docs", "document", "calendar", "email", "gmail", "slack", "linear", "jira", "workspace"]],
-  ["browser-search", ["browser", "search", "crawl", "web", "scrape", "internet"]],
-  ["data-analytics", ["analytics", "metrics", "dashboard", "report", "bi", "spreadsheet", "excel", "csv"]],
-  ["finance-commerce", ["stripe", "payment", "invoice", "commerce", "shopify", "finance", "trading", "crypto"]],
-  ["ai-media", ["image", "video", "audio", "llm", "model", "prompt", "3d", "media"]],
-  ["customer-support", ["crm", "support", "ticket", "intercom", "zendesk", "customer", "salesforce"]],
-  ["local-system", ["filesystem", "terminal", "shell", "desktop", "local", "os"]]
-];
 
 export const DISCOVERY_SOURCES = [
   { name: "Official MCP Registry", type: "registry", url: REGISTRY_API_URL, priority: "primary", note: "Canonical registry source used for the local index." },
@@ -85,7 +73,7 @@ export function normalizeRegistryEntry(entry) {
     repositoryUrl: server.repository?.url || null,
     websiteUrl: server.websiteUrl || null,
     installTypes: inferInstallTypes(remotes, packages),
-    categories: inferCategories(text),
+    categories: inferCategoriesFromText(text),
     authRequired: hasRequiredAuth(remotes, packages),
     github: null,
     remotes: remotes.map(cleanRemote),
@@ -245,11 +233,6 @@ export async function discoverFromGitHubTopics({ perPage = 10 } = {}) {
 
 export function getDiscoverySources() {
   return DISCOVERY_SOURCES;
-}
-
-function inferCategories(text) {
-  const matches = CATEGORY_RULES.filter(([, keywords]) => keywords.some((keyword) => text.includes(keyword))).map(([category]) => category);
-  return matches.length ? matches : ["general"];
 }
 
 function inferInstallTypes(remotes, packages) {

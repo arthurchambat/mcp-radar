@@ -1,6 +1,5 @@
 import {
   decorateServer,
-  discoverFromGitHubTopics,
   loadIndex,
   REGISTRY_API_URL,
   syncOfficialRegistry
@@ -13,6 +12,7 @@ import {
   upsertServer,
   upsertSource
 } from "./db.js";
+import { inferCategoriesFromText } from "./taxonomy.js";
 
 const MCP_QUERIES = [
   "mcp server",
@@ -22,13 +22,28 @@ const MCP_QUERIES = [
   "mcp for"
 ];
 
+const GITHUB_REPO_QUERIES = [
+  "topic:model-context-protocol",
+  "topic:mcp-server",
+  "\"model context protocol\" in:name,description,readme",
+  "\"mcp server\" in:name,description,readme",
+  "\"mcp-server\" in:name,description,readme",
+  "\"claude mcp\" in:name,description,readme",
+  "\"cursor mcp\" in:name,description,readme",
+  "\"anthropic mcp\" in:name,description,readme",
+  "\"modelcontextprotocol\" in:name,description,readme",
+  "mcp language:TypeScript in:name,description",
+  "mcp language:Python in:name,description",
+  "mcp language:Go in:name,description"
+];
+
 const REDDIT_SUBREDDITS = ["ClaudeAI", "LocalLLaMA", "mcp", "ChatGPTCoding", "AI_Agents", "selfhosted", "programming"];
 
-export async function ingestAll({ dbPath, registryPages = 20, githubPerPage = 20, npmSize = 25, hnHits = 20, redditLimit = 20 } = {}) {
+export async function ingestAll({ dbPath, registryPages = 20, githubPerPage = 50, githubPages = 2, npmSize = 50, hnHits = 20, redditLimit = 20 } = {}) {
   const db = openDatabase(dbPath);
   const summary = {};
   summary.registry = await ingestOfficialRegistry(db, { maxPages: registryPages });
-  summary.github = await ingestGitHub(db, { perPage: githubPerPage });
+  summary.github = await ingestGitHub(db, { perPage: githubPerPage, pages: githubPages });
   summary.npm = await ingestNpm(db, { size: npmSize });
   summary.hn = await ingestHackerNews(db, { hitsPerQuery: hnHits });
   summary.reddit = await ingestReddit(db, { limit: redditLimit });
@@ -59,7 +74,7 @@ export async function ingestOfficialRegistry(db = openDatabase(), { maxPages = 2
   return { source: "official-registry", servers: index.servers.length };
 }
 
-export async function ingestGitHub(db = openDatabase(), { perPage = 20 } = {}) {
+export async function ingestGitHub(db = openDatabase(), { perPage = 50, pages = 2, queries = GITHUB_REPO_QUERIES } = {}) {
   const source = {
     slug: "github-topics",
     name: "GitHub MCP Topics",
@@ -68,7 +83,7 @@ export async function ingestGitHub(db = openDatabase(), { perPage = 20 } = {}) {
     priority: "secondary"
   };
   upsertSource(db, source);
-  const repos = await discoverFromGitHubTopics({ perPage });
+  const repos = await discoverGitHubRepositories({ perPage, pages, queries });
   const write = db.transaction((items) => {
     for (const repo of items) {
       const server = decorateServer({
@@ -82,7 +97,7 @@ export async function ingestGitHub(db = openDatabase(), { perPage = 20 } = {}) {
         repositoryUrl: repo.repositoryUrl,
         websiteUrl: null,
         installTypes: ["unknown"],
-        categories: inferCandidateCategories(repo.title, repo.description),
+        categories: inferCategoriesFromText(repo.title, repo.description, repo.repositoryUrl, repo.language, repo.topics?.join(" ")),
         authRequired: false,
         registryPresent: false,
         github: {
@@ -111,7 +126,7 @@ export async function ingestGitHub(db = openDatabase(), { perPage = 20 } = {}) {
     }
   });
   write(repos);
-  return { source: "github-topics", candidates: repos.length };
+  return { source: "github-topics", candidates: repos.length, queries: queries.length, pages };
 }
 
 export async function ingestNpm(db = openDatabase(), { size = 25 } = {}) {
@@ -148,7 +163,7 @@ export async function ingestNpm(db = openDatabase(), { size = 25 } = {}) {
         repositoryUrl: normalizeRepoUrl(pkg.links?.repository),
         websiteUrl: pkg.links?.homepage || pkg.links?.npm || null,
         installTypes: ["npm", "stdio"],
-        categories: inferCandidateCategories(pkg.name, pkg.description),
+        categories: inferCategoriesFromText(pkg.name, pkg.description, pkg.links?.repository, pkg.keywords?.join(" ")),
         authRequired: false,
         registryPresent: false,
         github: null,
@@ -251,17 +266,43 @@ export async function ingestReddit(db = openDatabase(), { limit = 20 } = {}) {
   return { source: "reddit-search", mentions: mentions.length };
 }
 
-function inferCandidateCategories(...parts) {
-  const text = parts.join(" ").toLowerCase();
-  const categories = [];
-  if (/github|repo|git|code|dev|deploy|ci|issue|pull/.test(text)) categories.push("devtools-code");
-  if (/postgres|sql|database|redis|mysql|mongo|data/.test(text)) categories.push("database-storage");
-  if (/ads|marketing|seo|campaign|growth|gtm/.test(text)) categories.push("ads-growth");
-  if (/notion|docs|gmail|email|calendar|slack|jira|linear/.test(text)) categories.push("productivity-docs");
-  if (/browser|search|crawl|scrape|web/.test(text)) categories.push("browser-search");
-  if (/analytics|metrics|report|dashboard|csv|excel/.test(text)) categories.push("data-analytics");
-  if (/stripe|payment|finance|shopify|commerce|trading/.test(text)) categories.push("finance-commerce");
-  return categories.length ? categories : ["general"];
+export async function discoverGitHubRepositories({ perPage = 50, pages = 2, queries = GITHUB_REPO_QUERIES } = {}) {
+  const seen = new Map();
+  const cappedPerPage = Math.min(Number(perPage), 100);
+  for (const query of queries) {
+    for (let page = 1; page <= Number(pages); page += 1) {
+      const url = new URL("https://api.github.com/search/repositories");
+      url.searchParams.set("q", query);
+      url.searchParams.set("sort", "updated");
+      url.searchParams.set("order", "desc");
+      url.searchParams.set("per_page", String(cappedPerPage));
+      url.searchParams.set("page", String(page));
+      const response = await fetch(url, { headers: apiHeaders(), signal: AbortSignal.timeout(15000) });
+      if (!response.ok) break;
+      const data = await response.json();
+      for (const repo of data.items || []) {
+        const haystack = `${repo.full_name} ${repo.name} ${repo.description || ""} ${(repo.topics || []).join(" ")}`.toLowerCase();
+        if (!/(mcp|model context protocol|modelcontextprotocol)/.test(haystack)) continue;
+        seen.set(repo.full_name, {
+          name: repo.full_name,
+          title: repo.name,
+          description: repo.description || "",
+          repositoryUrl: repo.html_url,
+          stars: repo.stargazers_count || 0,
+          forks: repo.forks_count || 0,
+          openIssues: repo.open_issues_count || 0,
+          updatedAt: repo.updated_at,
+          pushedAt: repo.pushed_at,
+          language: repo.language,
+          topics: repo.topics || [],
+          source: "github-search",
+          matchedQuery: query
+        });
+      }
+      if ((data.items || []).length < cappedPerPage) break;
+    }
+  }
+  return [...seen.values()].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
 }
 
 function normalizeRepoUrl(value) {

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { categorySearchText, inferCategoriesFromText } from "./taxonomy.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_DB_PATH = path.resolve(__dirname, "../data/mcp-radar.db");
@@ -115,6 +116,18 @@ export function migrate(db) {
       ON mentions(source_id, COALESCE(external_id, ''), COALESCE(url, ''));
     CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_candidates_unique
       ON raw_candidates(source_id, COALESCE(url, ''), COALESCE(title, ''));
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS mcp_server_fts USING fts5(
+      server_id UNINDEXED,
+      name,
+      title,
+      description,
+      categories,
+      install_types,
+      repository_url,
+      website_url,
+      tokenize = 'porter unicode61'
+    );
   `);
 }
 
@@ -205,6 +218,7 @@ export function upsertServer(db, server) {
   const row = db.prepare("SELECT * FROM mcp_servers WHERE canonical_name = ?").get(server.name);
   replaceCategories(db, row.id, server.categories || ["general"]);
   replaceInstallOptions(db, row.id, server);
+  refreshServerFts(db, row.id);
   return row;
 }
 
@@ -275,7 +289,7 @@ export function getStats(db) {
 
 export function searchServers(db, { query = "", category = "all", installType = "all", auth = "any", limit = 30 } = {}) {
   const q = query.trim().toLowerCase();
-  const rows = db.prepare(`
+  const fallbackRows = () => db.prepare(`
     SELECT s.*,
       GROUP_CONCAT(DISTINCT c.name) AS categories,
       GROUP_CONCAT(DISTINCT io.type) AS install_types,
@@ -288,6 +302,8 @@ export function searchServers(db, { query = "", category = "all", installType = 
     LEFT JOIN mentions m ON m.server_id = s.id
     GROUP BY s.id
   `).all();
+  const ftsRows = q ? searchServersFts(db, q, { limit: Math.max(Number(limit) * 8, 120) }) : [];
+  const rows = q && ftsRows.length ? ftsRows : fallbackRows();
 
   return rows
     .map(hydrateServerRow)
@@ -295,11 +311,46 @@ export function searchServers(db, { query = "", category = "all", installType = 
     .filter((server) => installType === "all" || server.installTypes.includes(installType))
     .filter((server) => auth !== "required" || server.authRequired)
     .filter((server) => auth !== "none" || !server.authRequired)
-    .map((server) => ({ server, score: scoreSearch(server, q) }))
+    .map((server) => ({ server, score: (server.ftsScore || 0) + scoreSearch(server, q) }))
     .filter((result) => !q || result.score > 0)
     .sort((a, b) => b.score - a.score || b.server.qualityScore - a.server.qualityScore)
     .slice(0, Number(limit))
     .map(({ server, score }) => ({ ...server, fitScore: score }));
+}
+
+export function rebuildSearchIndex(db) {
+  db.prepare("DELETE FROM mcp_server_fts").run();
+  const rows = db.prepare("SELECT id FROM mcp_servers").all();
+  const write = db.transaction((items) => {
+    for (const row of items) refreshServerFts(db, row.id);
+  });
+  write(rows);
+  return { indexed: rows.length };
+}
+
+export function reclassifyServers(db) {
+  const rows = db.prepare(`
+    SELECT s.id, s.canonical_name, s.title, s.description, s.repository_url, s.website_url,
+      GROUP_CONCAT(DISTINCT io.type || ' ' || COALESCE(io.package_name, '') || ' ' || COALESCE(io.url, '')) AS install_text
+    FROM mcp_servers s
+    LEFT JOIN install_options io ON io.server_id = s.id
+    GROUP BY s.id
+  `).all();
+  const write = db.transaction((items) => {
+    for (const row of items) {
+      replaceCategories(db, row.id, inferCategoriesFromText(
+        row.canonical_name,
+        row.title,
+        row.description,
+        row.repository_url,
+        row.website_url,
+        row.install_text
+      ));
+      refreshServerFts(db, row.id);
+    }
+  });
+  write(rows);
+  return { reclassified: rows.length };
 }
 
 export function getRiskReport(db, { name }) {
@@ -434,6 +485,62 @@ function replaceInstallOptions(db, serverId, server) {
   }
 }
 
+function refreshServerFts(db, serverId) {
+  const row = db.prepare(`
+    SELECT s.canonical_name, s.title, s.description, s.repository_url, s.website_url,
+      GROUP_CONCAT(DISTINCT c.name) AS categories,
+      GROUP_CONCAT(DISTINCT io.type || ' ' || COALESCE(io.package_name, '') || ' ' || COALESCE(io.transport, '')) AS install_types
+    FROM mcp_servers s
+    LEFT JOIN server_categories sc ON sc.server_id = s.id
+    LEFT JOIN categories c ON c.id = sc.category_id
+    LEFT JOIN install_options io ON io.server_id = s.id
+    WHERE s.id = ?
+    GROUP BY s.id
+  `).get(serverId);
+  if (!row) return;
+  db.prepare("DELETE FROM mcp_server_fts WHERE server_id = ?").run(serverId);
+  db.prepare(`
+    INSERT INTO mcp_server_fts (server_id, name, title, description, categories, install_types, repository_url, website_url)
+    VALUES (@serverId, @name, @title, @description, @categories, @installTypes, @repositoryUrl, @websiteUrl)
+  `).run({
+    serverId,
+    name: row.canonical_name || "",
+    title: row.title || "",
+    description: row.description || "",
+    categories: `${row.categories || ""} ${categorySearchText((row.categories || "").split(",").filter(Boolean))}`,
+    installTypes: row.install_types || "",
+    repositoryUrl: row.repository_url || "",
+    websiteUrl: row.website_url || ""
+  });
+}
+
+function searchServersFts(db, query, { limit = 200 } = {}) {
+  const ftsQuery = toFtsQuery(query);
+  if (!ftsQuery) return [];
+  try {
+    return db.prepare(`
+      SELECT s.*,
+        GROUP_CONCAT(DISTINCT c.name) AS categories,
+        GROUP_CONCAT(DISTINCT io.type) AS install_types,
+        COUNT(DISTINCT m.id) AS mention_count,
+        COALESCE(SUM(m.score), 0) AS mention_score,
+        MAX(80 - (bm25(mcp_server_fts) * 10)) AS fts_score
+      FROM mcp_server_fts
+      JOIN mcp_servers s ON s.id = mcp_server_fts.server_id
+      LEFT JOIN server_categories sc ON sc.server_id = s.id
+      LEFT JOIN categories c ON c.id = sc.category_id
+      LEFT JOIN install_options io ON io.server_id = s.id
+      LEFT JOIN mentions m ON m.server_id = s.id
+      WHERE mcp_server_fts MATCH ?
+      GROUP BY s.id
+      ORDER BY bm25(mcp_server_fts), s.quality_score DESC
+      LIMIT ?
+    `).all(ftsQuery, Number(limit));
+  } catch {
+    return [];
+  }
+}
+
 function hydrateServerRow(row) {
   const metadata = parseJson(row.metadata_json);
   const server = {
@@ -459,6 +566,7 @@ function hydrateServerRow(row) {
     githubPushedAt: row.github_pushed_at,
     mentionCount: row.mention_count || 0,
     mentionScore: row.mention_score || 0,
+    ftsScore: Math.max(0, Math.round(row.fts_score || 0)),
     categories: row.categories ? row.categories.split(",") : metadata.categories || ["general"],
     installTypes: row.install_types ? row.install_types.split(",") : metadata.installTypes || ["unknown"],
     installRecipes: metadata.installRecipes || []
@@ -589,16 +697,38 @@ function dedupeFlags(flags) {
 
 function scoreSearch(server, query) {
   if (!query) return server.qualityScore + server.mentionCount * 5;
-  const tokens = query.split(/\s+/).filter(Boolean);
+  const tokens = searchTokens(query);
+  const searchable = `${server.title} ${server.name} ${server.categories.join(" ")} ${server.description} ${server.repositoryUrl || ""} ${server.websiteUrl || ""}`.toLowerCase();
+  const strongMatches = tokens.filter((token) => searchable.includes(token)).length;
   const weighted = [
-    [server.title, 8],
-    [server.name, 7],
+    [server.title, 14],
+    [server.name, 12],
     [server.categories.join(" "), 5],
     [server.description, 4],
     [server.repositoryUrl || "", 2],
     [server.websiteUrl || "", 1]
   ];
-  return tokens.reduce((score, token) => score + weighted.reduce((inner, [value, weight]) => inner + (String(value || "").toLowerCase().includes(token) ? weight : 0), 0), 0) + Math.round(server.qualityScore / 10) + server.mentionCount * 2;
+  return tokens.reduce((score, token) => score + weighted.reduce((inner, [value, weight]) => inner + (String(value || "").toLowerCase().includes(token) ? weight : 0), 0), 0)
+    + strongMatches * 8
+    + Math.round(server.qualityScore / 10)
+    + server.mentionCount * 2;
+}
+
+function toFtsQuery(query) {
+  const tokens = searchTokens(query)
+    .slice(0, 12);
+  return tokens.map((token) => `${token.replace(/"/g, "")}*`).join(" OR ");
+}
+
+function searchTokens(query) {
+  const stopWords = new Set(["a", "an", "and", "are", "as", "for", "find", "i", "in", "me", "need", "of", "or", "safe", "show", "the", "to", "up", "with"]);
+  return query
+    .toLowerCase()
+    .replace(/[^a-z0-9@/_-]+/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !stopWords.has(token))
+    .slice(0, 12);
 }
 
 function parseJson(value) {

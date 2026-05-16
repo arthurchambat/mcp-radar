@@ -151,6 +151,33 @@ input::placeholder {
   font-size: 12px;
 }
 
+.category-rail {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  padding-bottom: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.category-chip {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 14px;
+  color: var(--paper);
+  font-size: 12px;
+  white-space: nowrap;
+  border-color: rgba(243, 234, 214, 0.2);
+  background: rgba(243, 234, 214, 0.045);
+}
+
+.category-chip.active {
+  color: #11130f;
+  border-color: var(--acid);
+  background: var(--acid);
+  transform: none;
+}
+
 .stats-bar {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

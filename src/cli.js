@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { discoverFromGitHubTopics, enrichIndexWithGitHub, generateWeeklyDigest, latestMcps, loadIndex, searchMcps, syncOfficialRegistry } from "./registry.js";
-import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, rebuildSearchIndex, reclassifyServers, searchServers } from "./db.js";
 import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const [command, ...args] = process.argv.slice(2);
@@ -13,7 +13,7 @@ if (command === "sync") {
 } else if (command === "ingest-registry") {
   console.log(JSON.stringify(await ingestOfficialRegistry(), null, 2));
 } else if (command === "ingest-github") {
-  console.log(JSON.stringify(await ingestGitHub(undefined, { perPage: Number(args[0] || 20) }), null, 2));
+  console.log(JSON.stringify(await ingestGitHub(undefined, { perPage: Number(args[0] || 50), pages: Number(args[1] || 2) }), null, 2));
 } else if (command === "ingest-npm") {
   console.log(JSON.stringify(await ingestNpm(undefined, { size: Number(args[0] || 25) }), null, 2));
 } else if (command === "ingest-hn") {
@@ -31,6 +31,10 @@ if (command === "sync") {
 } else if (command === "risk") {
   const report = getRiskReport(openDatabase(), { name: args.join(" ") });
   console.log(report ? JSON.stringify(report, null, 2) : "No MCP found for that name.");
+} else if (command === "reindex") {
+  console.log(JSON.stringify(rebuildSearchIndex(openDatabase()), null, 2));
+} else if (command === "reclassify") {
+  console.log(JSON.stringify(reclassifyServers(openDatabase()), null, 2));
 } else if (command === "stats") {
   console.log(JSON.stringify(getStats(openDatabase()), null, 2));
 } else if (command === "search") {

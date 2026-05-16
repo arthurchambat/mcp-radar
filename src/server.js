@@ -16,7 +16,7 @@ import {
   searchMcps,
   syncOfficialRegistry
 } from "./registry.js";
-import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, openDatabase, searchServers } from "./db.js";
+import { getRecentMentions, getRiskReport, getStats, getTrendingServers, getUnregisteredCandidates, listDbCategories, openDatabase, rebuildSearchIndex, reclassifyServers, searchServers } from "./db.js";
 import { ingestAll, ingestGitHub, ingestHackerNews, ingestNpm, ingestOfficialRegistry, ingestReddit } from "./ingest.js";
 
 const server = new McpServer({ name: "mcp-radar", version: "0.1.0" });
@@ -29,6 +29,7 @@ server.tool("sync_mcp_registry", "Refresh the local MCP index from the official 
 server.tool("ingest_mcp_sources", "Ingest official registry, GitHub, npm, Hacker News, and Reddit into the SQLite database.", {
   registryPages: z.number().int().min(1).max(100).default(20),
   githubPerPage: z.number().int().min(1).max(50).default(20),
+  githubPages: z.number().int().min(1).max(10).default(2),
   npmSize: z.number().int().min(1).max(100).default(25),
   hnHits: z.number().int().min(1).max(100).default(20),
   redditLimit: z.number().int().min(1).max(100).default(20)
@@ -84,6 +85,12 @@ server.tool("get_mcp_risk_report", "Inspect one MCP and return a plain-English t
 });
 
 server.tool("get_mcp_database_stats", "Return SQLite database counts for servers, mentions, raw candidates, and sources.", {}, async () => jsonResult(getStats(openDatabase())));
+
+server.tool("reindex_mcp_search", "Rebuild the SQLite full-text search index for MCP servers.", {}, async () => jsonResult(rebuildSearchIndex(openDatabase())));
+
+server.tool("reclassify_mcp_database", "Re-run MCP Radar taxonomy inference across every server in the SQLite database.", {}, async () => jsonResult(reclassifyServers(openDatabase())));
+
+server.tool("list_mcp_database_categories", "List inferred category counts from the SQLite MCP database.", {}, async () => jsonResult(listDbCategories(openDatabase())));
 
 server.tool("find_latest_mcps", "List recently published or updated MCP servers.", { days: z.number().int().min(1).max(365).default(14), category: z.string().optional(), limit: z.number().int().min(1).max(50).default(10) }, async (args) => {
   const index = await loadIndex();

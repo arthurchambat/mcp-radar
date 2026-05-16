@@ -1,4 +1,4 @@
-const state = { results: [] };
+const state = { results: [], category: "all" };
 
 const elements = {
   searchForm: document.querySelector("#searchForm"),
@@ -13,6 +13,7 @@ const elements = {
   mentionCount: document.querySelector("#mentionCount"),
   candidateCount: document.querySelector("#candidateCount"),
   syncedAt: document.querySelector("#syncedAt"),
+  categoryRail: document.querySelector("#categoryRail"),
   libraryTitle: document.querySelector("#libraryTitle"),
   resultCount: document.querySelector("#resultCount"),
   results: document.querySelector("#results"),
@@ -41,6 +42,7 @@ await bootstrap();
 
 async function bootstrap() {
   await refreshStatus();
+  await renderCategories();
   elements.queryInput.value = "inspect postgres database safely";
   await runSearch();
 }
@@ -55,15 +57,37 @@ async function refreshStatus() {
 
 async function runSearch() {
   const query = elements.queryInput.value.trim();
-  elements.libraryTitle.textContent = query ? "Best matches" : "Library";
+  elements.libraryTitle.textContent = state.category === "all" ? (query ? "Best matches" : "Library") : readableCategory(state.category);
   setBusy(elements.searchButton, "Searching...");
   try {
-    const params = new URLSearchParams({ query, limit: "24" });
+    const params = new URLSearchParams({ query, category: state.category, limit: "24" });
     state.results = await getJson(`/api/db/search?${params}`);
     renderCards(state.results, `${state.results.length} found`);
   } finally {
     setReady(elements.searchButton, "Search");
   }
+}
+
+async function renderCategories() {
+  const categories = await getJson("/api/db/categories");
+  elements.categoryRail.replaceChildren(categoryButton({ name: "all", count: null }));
+  for (const category of categories.slice(0, 12)) {
+    elements.categoryRail.append(categoryButton(category));
+  }
+}
+
+function categoryButton(category) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `category-chip${state.category === category.name ? " active" : ""}`;
+  button.textContent = category.name === "all" ? "All" : `${readableCategory(category.name)} ${category.count}`;
+  button.addEventListener("click", () => {
+    state.category = category.name;
+    for (const item of elements.categoryRail.querySelectorAll(".category-chip")) item.classList.remove("active");
+    button.classList.add("active");
+    runSearch();
+  });
+  return button;
 }
 
 async function showTrending() {
@@ -297,6 +321,10 @@ function setReady(button, fallback) {
 function compactDate(value) {
   if (!value) return "unknown";
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function readableCategory(value) {
+  return String(value || "general").replaceAll("-", " ");
 }
 
 function formatNumber(value) {

@@ -9,7 +9,7 @@ The main product angle is inspection before installation: every database-backed 
 It also includes a SQLite database mode that ingests:
 
 - official MCP Registry servers
-- GitHub MCP topic repositories
+- GitHub MCP topic repositories and broad GitHub repository search
 - npm MCP package candidates
 - Hacker News mentions
 - Reddit mentions
@@ -46,6 +46,8 @@ MCP Radar starts with the official MCP Registry and turns it into a practical lo
 npm install
 npm run sync
 npm run ingest
+npm run reclassify
+npm run reindex
 npm run enrich:github
 npm run ui
 ```
@@ -104,6 +106,8 @@ npm run print-config
 - `ingest_mcp_sources` fills the SQLite database from registry, GitHub, npm, Hacker News, and Reddit.
 - `ingest_one_source` refreshes a single source.
 - `enrich_mcp_github_metadata` adds stars, forks, open issues, license, and push recency where GitHub metadata is available.
+- `reclassify_mcp_database` re-runs category inference across the full database.
+- `reindex_mcp_search` rebuilds the SQLite full-text search index.
 - `search_mcps` searches by app, use case, category, install type, or auth friction.
 - `search_mcp_database` searches the larger SQLite database.
 - `get_trending_mcps` ranks servers by mentions, quality, GitHub signals, and recency.
@@ -140,6 +144,8 @@ npm run trending
 npm run candidates
 npm run mentions
 npm run risk -- "capital.hove/read-only-local-postgres-mcp-server"
+npm run reclassify
+npm run reindex
 npm run stats
 npm run enrich:github
 npm run search -- "ads reporting"
@@ -148,6 +154,16 @@ npm run digest
 npm run discover:github
 npm run demo
 ```
+
+For deeper GitHub discovery, use:
+
+```bash
+node src/cli.js ingest-github 100 5
+npm run reclassify
+npm run reindex
+```
+
+Set `GITHUB_TOKEN` before running large GitHub imports. Without a token, GitHub API rate limits will cap how exhaustive the scan can be.
 
 ## Data Sources
 
@@ -161,10 +177,28 @@ Additional source hooks:
 
 - GitHub topic search for `model-context-protocol`
 - GitHub topic search for `mcp-server`
+- GitHub repository search for `model context protocol`, `mcp server`, `claude mcp`, `cursor mcp`, `anthropic mcp`, and language-specific MCP queries
 - npm registry search for installable package candidates
 - Hacker News search for launch/technical discussion mentions
 - Reddit search for builder demand signals
 - Smithery, Glama, and PulseMCP listed as future directory integrations pending API and usage review
+
+## Search And Categories
+
+MCP Radar uses SQLite FTS5 for the database search path, with a taxonomy layer that maps plain-English queries and server metadata into stable product categories:
+
+- developer tools and code
+- databases and storage
+- browser and web automation
+- productivity and documents
+- GTM, sales, and marketing
+- data and analytics
+- security and compliance
+- finance and commerce
+- AI, models, and media
+- cloud and infrastructure
+- local system access
+- support, research, and personal tools
 
 ## Database Model
 
