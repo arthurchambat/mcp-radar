@@ -1,260 +1,177 @@
-const state = { categories: [], results: [], latest: [] };
+const state = { results: [] };
+
 const elements = {
-  syncButton: document.querySelector("#syncButton"),
-  ingestButton: document.querySelector("#ingestButton"),
-  enrichButton: document.querySelector("#enrichButton"),
-  searchButton: document.querySelector("#searchButton"),
-  recommendButton: document.querySelector("#recommendButton"),
-  digestButton: document.querySelector("#digestButton"),
-  sourcesButton: document.querySelector("#sourcesButton"),
+  searchForm: document.querySelector("#searchForm"),
   queryInput: document.querySelector("#queryInput"),
-  categoryFilter: document.querySelector("#categoryFilter"),
-  installFilter: document.querySelector("#installFilter"),
-  authFilter: document.querySelector("#authFilter"),
+  searchButton: document.querySelector("#searchButton"),
+  ingestButton: document.querySelector("#ingestButton"),
+  syncButton: document.querySelector("#syncButton"),
+  trendingButton: document.querySelector("#trendingButton"),
+  candidatesButton: document.querySelector("#candidatesButton"),
+  mentionsButton: document.querySelector("#mentionsButton"),
   totalCount: document.querySelector("#totalCount"),
   mentionCount: document.querySelector("#mentionCount"),
   candidateCount: document.querySelector("#candidateCount"),
   syncedAt: document.querySelector("#syncedAt"),
+  libraryTitle: document.querySelector("#libraryTitle"),
   resultCount: document.querySelector("#resultCount"),
   results: document.querySelector("#results"),
-  databaseModeButton: document.querySelector("#databaseModeButton"),
-  trendingButton: document.querySelector("#trendingButton"),
-  candidatesButton: document.querySelector("#candidatesButton"),
-  mentionsButton: document.querySelector("#mentionsButton"),
-  latestList: document.querySelector("#latestList"),
-  digestOutput: document.querySelector("#digestOutput"),
-  sourcesList: document.querySelector("#sourcesList"),
   cardTemplate: document.querySelector("#cardTemplate"),
   mentionTemplate: document.querySelector("#mentionTemplate")
 };
 
-elements.syncButton.addEventListener("click", syncRegistry);
+elements.searchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runSearch();
+});
 elements.ingestButton.addEventListener("click", ingestAllSources);
-elements.enrichButton.addEventListener("click", enrichGitHub);
-elements.searchButton.addEventListener("click", runSearch);
-elements.recommendButton.addEventListener("click", runRecommend);
-elements.digestButton.addEventListener("click", generateDigest);
-elements.sourcesButton.addEventListener("click", loadSources);
-elements.databaseModeButton.addEventListener("click", runSearch);
+elements.syncButton.addEventListener("click", syncRegistry);
 elements.trendingButton.addEventListener("click", showTrending);
 elements.candidatesButton.addEventListener("click", showCandidates);
 elements.mentionsButton.addEventListener("click", showMentions);
-elements.queryInput.addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); });
-for (const filter of [elements.categoryFilter, elements.installFilter, elements.authFilter]) filter.addEventListener("change", runSearch);
+
+for (const button of document.querySelectorAll(".hint")) {
+  button.addEventListener("click", () => {
+    elements.queryInput.value = button.dataset.query;
+    runSearch();
+  });
+}
 
 await bootstrap();
 
 async function bootstrap() {
   await refreshStatus();
-  await refreshCategories();
-  await Promise.all([runSearch(), refreshLatest()]);
+  elements.queryInput.value = "inspect postgres database safely";
+  await runSearch();
 }
 
 async function refreshStatus() {
   const status = await getJson("/api/status");
-  elements.totalCount.textContent = status.total || 0;
-  elements.mentionCount.textContent = status.database?.mentions || 0;
-  elements.candidateCount.textContent = status.database?.candidates || 0;
-  elements.syncedAt.textContent = status.syncedAt ? new Date(status.syncedAt).toLocaleString() : "Never";
+  elements.totalCount.textContent = formatNumber(status.total || 0);
+  elements.mentionCount.textContent = formatNumber(status.database?.mentions || 0);
+  elements.candidateCount.textContent = formatNumber(status.database?.candidates || 0);
+  elements.syncedAt.textContent = status.syncedAt ? compactDate(status.syncedAt) : "Never";
 }
 
-async function refreshCategories() {
-  state.categories = await getJson("/api/categories");
-  elements.categoryFilter.querySelectorAll("option:not([value='all'])").forEach((option) => option.remove());
-  for (const category of state.categories) {
-    const option = document.createElement("option");
-    option.value = category.name;
-    option.textContent = `${category.name} (${category.count})`;
-    elements.categoryFilter.append(option);
+async function runSearch() {
+  const query = elements.queryInput.value.trim();
+  elements.libraryTitle.textContent = query ? "Best matches" : "Library";
+  setBusy(elements.searchButton, "Searching...");
+  try {
+    const params = new URLSearchParams({ query, limit: "24" });
+    state.results = await getJson(`/api/db/search?${params}`);
+    renderCards(state.results, `${state.results.length} found`);
+  } finally {
+    setReady(elements.searchButton, "Search");
+  }
+}
+
+async function showTrending() {
+  elements.libraryTitle.textContent = "Trending now";
+  state.results = await getJson("/api/db/trending?days=14&limit=24");
+  renderCards(state.results, `${state.results.length} trending`);
+}
+
+async function showCandidates() {
+  elements.libraryTitle.textContent = "Found outside the registry";
+  const candidates = await getJson("/api/db/candidates?limit=36");
+  renderMentions(candidates.map((item) => ({
+    title: item.title || item.extracted_name || item.name || "Candidate",
+    eyebrow: item.source_name || "candidate",
+    text: item.description || item.text || item.extracted_name || "",
+    url: item.repositoryUrl || item.websiteUrl || item.url,
+    score: item.confidence || item.qualityScore || 0,
+    created_at: item.updatedAt || item.discovered_at
+  })), `${candidates.length} candidates`);
+}
+
+async function showMentions() {
+  elements.libraryTitle.textContent = "Recent demand signals";
+  const mentions = await getJson("/api/db/mentions?limit=36");
+  renderMentions(mentions.map((item) => ({
+    title: item.title || "Mention",
+    eyebrow: item.source_name || "mention",
+    text: item.text || "",
+    url: item.url,
+    score: item.score,
+    created_at: item.created_at || item.discovered_at
+  })), `${mentions.length} mentions`);
+}
+
+async function ingestAllSources() {
+  setBusy(elements.ingestButton, "Ingesting...");
+  try {
+    await fetch("/api/ingest", { method: "POST" }).then(assertOk);
+    await refreshStatus();
+    await showTrending();
+  } finally {
+    setReady(elements.ingestButton, "Ingest all sources");
   }
 }
 
 async function syncRegistry() {
-  elements.syncButton.disabled = true;
-  elements.syncButton.textContent = "Syncing...";
-  try { await fetch("/api/sync", { method: "POST" }).then(assertOk); await bootstrap(); }
-  finally { elements.syncButton.disabled = false; elements.syncButton.textContent = "Sync Registry"; }
-}
-
-async function ingestAllSources() {
-  elements.ingestButton.disabled = true;
-  elements.ingestButton.textContent = "Ingesting...";
+  setBusy(elements.syncButton, "Syncing...");
   try {
-    await fetch("/api/ingest", { method: "POST" }).then(assertOk);
-    await bootstrap();
+    await fetch("/api/ingest/registry", { method: "POST" }).then(assertOk);
+    await refreshStatus();
+    await runSearch();
   } finally {
-    elements.ingestButton.disabled = false;
-    elements.ingestButton.textContent = "Ingest All";
+    setReady(elements.syncButton, "Sync registry only");
   }
 }
 
-async function enrichGitHub() {
-  elements.enrichButton.disabled = true;
-  elements.enrichButton.textContent = "Enriching...";
-  try { await fetch("/api/enrich/github?maxRepos=40", { method: "POST" }).then(assertOk); await bootstrap(); }
-  finally { elements.enrichButton.disabled = false; elements.enrichButton.textContent = "Enrich GitHub"; }
-}
-
-async function runSearch() {
-  setMode(elements.databaseModeButton);
-  const params = new URLSearchParams({ query: elements.queryInput.value, category: elements.categoryFilter.value, installType: elements.installFilter.value, auth: elements.authFilter.value, limit: "40" });
-  state.results = await getJson(`/api/db/search?${params}`);
-  renderResults();
-}
-
-async function runRecommend() {
-  const task = elements.queryInput.value.trim();
-  if (!task) return runSearch();
-  state.results = await getJson(`/api/recommend?${new URLSearchParams({ task })}`);
-  renderResults();
-}
-
-async function showTrending() {
-  setMode(elements.trendingButton);
-  state.results = await getJson("/api/db/trending?days=14&limit=40");
-  renderResults();
-}
-
-async function showCandidates() {
-  setMode(elements.candidatesButton);
-  const candidates = await getJson("/api/db/candidates?limit=50");
-  renderMentions(candidates.map((item) => ({
-    title: item.title || item.extracted_name || "Candidate",
-    text: item.text || item.extracted_name || "",
-    source: item.source_name,
-    url: item.url,
-    score: item.confidence,
-    created_at: item.discovered_at
-  })), "candidates");
-}
-
-async function showMentions() {
-  setMode(elements.mentionsButton);
-  const mentions = await getJson("/api/db/mentions?limit=50");
-  renderMentions(mentions.map((item) => ({
-    title: item.title || "Mention",
-    text: item.text || "",
-    source: item.source_name,
-    url: item.url,
-    score: item.score,
-    created_at: item.created_at || item.discovered_at
-  })), "mentions");
-}
-
-async function refreshLatest() {
-  state.latest = await getJson("/api/latest?days=30&limit=12");
-  renderLatest();
-}
-
-async function generateDigest() {
-  const digest = await getJson("/api/digest?days=7&limit=10");
-  elements.digestOutput.textContent = digest.markdown;
-}
-
-async function loadSources() {
-  const sources = await getJson("/api/sources");
-  elements.sourcesList.replaceChildren();
-  for (const source of sources) {
-    const item = document.createElement("div");
-    item.className = "source-item";
-    const link = document.createElement("a");
-    link.href = source.url;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.textContent = source.name;
-    const meta = document.createElement("p");
-    meta.textContent = `${source.priority} | ${source.note}`;
-    item.append(link, meta);
-    elements.sourcesList.append(item);
-  }
-}
-
-function renderResults() {
+function renderCards(servers, countText) {
   elements.results.replaceChildren();
-  elements.resultCount.textContent = `${state.results.length} found`;
-  if (!state.results.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "No MCPs found. Sync the registry or try a broader query.";
-    elements.results.append(empty);
+  elements.resultCount.textContent = countText;
+
+  if (!servers.length) {
+    renderEmpty("No MCPs found. Try a broader English search like “database”, “gmail”, or “github issues”.");
     return;
   }
-  for (const server of state.results) elements.results.append(renderCard(server));
-}
 
-function renderMentions(items, label) {
-  elements.results.replaceChildren();
-  elements.resultCount.textContent = `${items.length} ${label}`;
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = `No ${label} found yet. Run Ingest All first.`;
-    elements.results.append(empty);
-    return;
-  }
-  for (const item of items) {
-    const node = elements.mentionTemplate.content.firstElementChild.cloneNode(true);
-    node.querySelector("h3").textContent = item.title;
-    node.querySelector(".description").textContent = stripHtml(item.text || "No text available.").slice(0, 450);
-    node.querySelector(".meta-row").textContent = `${item.source || "source"} | score ${item.score || 0} | ${formatDate(item.created_at)}`;
-    addLink(node.querySelector(".link-row"), item.url, "Open");
-    elements.results.append(node);
+  for (const server of servers) {
+    elements.results.append(renderCard(server));
   }
 }
 
 function renderCard(server) {
   const node = elements.cardTemplate.content.firstElementChild.cloneNode(true);
+  const report = server.riskReport || {};
+  const riskLevel = report.level || "unknown";
+
   node.querySelector("h3").textContent = server.title;
   node.querySelector(".name").textContent = server.name;
   node.querySelector(".description").textContent = server.description || "No description available.";
-  const auth = node.querySelector(".auth-pill");
-  auth.textContent = server.authRequired ? "Auth required" : "Low friction";
-  auth.classList.add(server.authRequired ? "required" : "open");
-  const scoreGrid = node.querySelector(".score-grid");
-  const risk = server.riskReport || {};
-  for (const [label, value] of [["Risk", risk.level || "-"], ["Quality", server.qualityScore ?? "-"], ["Trust", server.trustScore ?? "-"], ["Install", server.installFriction || "-"]]) {
-    const score = document.createElement("div");
-    score.className = "score";
-    score.innerHTML = `<strong>${value}</strong><span>${label}</span>`;
-    scoreGrid.append(score);
-  }
-  const tagRow = node.querySelector(".tag-row");
-  for (const value of [...server.categories, ...server.installTypes]) {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = value;
-    tagRow.append(tag);
-  }
-  node.querySelector(".meta-row").textContent = `Version ${server.version || "unknown"} | updated ${formatDate(server.updatedAt)} | published ${formatDate(server.publishedAt)}`;
+
+  const pill = node.querySelector(".risk-pill");
+  pill.textContent = riskLevel === "unknown" ? "unscored" : `${riskLevel} risk`;
+  pill.classList.add(riskLevel);
+
+  const signalRow = node.querySelector(".signal-row");
+  const signals = [
+    `${server.qualityScore ?? "-"} quality`,
+    `${server.trustScore ?? "-"} trust`,
+    server.installFriction ? `${server.installFriction} install` : null,
+    server.authRequired ? "auth required" : "no auth detected",
+    ...(server.installTypes || []).slice(0, 2),
+    ...(server.categories || []).slice(0, 2)
+  ].filter(Boolean);
+  for (const signal of signals) signalRow.append(signalNode(signal));
+
+  node.querySelector(".risk-summary").textContent = report.summary || "Risk report unavailable. Run database ingestion first.";
+  renderRiskReport(node.querySelector(".risk-report"), report);
+  renderInstallRecipes(node.querySelector(".recipes"), server.installRecipes || []);
+
   const linkRow = node.querySelector(".link-row");
   addLink(linkRow, server.repositoryUrl, "Repository");
   addLink(linkRow, server.websiteUrl, "Website");
-  if (server.remotes?.[0]?.url) addLink(linkRow, server.remotes[0].url, "Remote endpoint");
 
-  renderRiskReport(node.querySelector(".risk-report"), server);
-
-  const recipes = node.querySelector(".recipes");
-  if (!server.installRecipes?.length) {
-    const empty = document.createElement("p");
-    empty.className = "name";
-    empty.textContent = "No install recipe detected yet.";
-    recipes.append(empty);
-  } else {
-    for (const recipe of server.installRecipes.slice(0, 3)) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = `<div class="recipe-label"></div><pre class="recipe-code"></pre>`;
-      wrap.querySelector(".recipe-label").textContent = `${recipe.client} | ${recipe.label}`;
-      wrap.querySelector(".recipe-code").textContent = typeof recipe.config === "string" ? recipe.config : JSON.stringify(recipe.config, null, 2);
-      recipes.append(wrap);
-    }
-  }
   return node;
 }
 
-function renderRiskReport(container, server) {
-  const report = server.riskReport;
-  if (!report) {
-    container.textContent = "No risk report available yet. Run database ingestion first.";
+function renderRiskReport(container, report) {
+  if (!report?.level) {
+    container.textContent = "No risk report available yet.";
     return;
   }
 
@@ -268,34 +185,63 @@ function renderRiskReport(container, server) {
   score.textContent = `${report.riskScore}/100 risk`;
   head.append(level, score);
 
-  const summary = document.createElement("p");
-  summary.className = "risk-summary";
-  summary.textContent = report.summary;
-
-  const access = document.createElement("ul");
-  access.className = "risk-list";
-  for (const item of report.access || []) {
-    const li = document.createElement("li");
-    li.textContent = item;
-    access.append(li);
-  }
-
-  const flags = document.createElement("ul");
-  flags.className = "risk-list";
-  for (const item of (report.flags || []).slice(0, 5)) {
-    const li = document.createElement("li");
-    li.className = "risk-flag";
-    const strong = document.createElement("strong");
-    strong.textContent = `${item.severity}: ${item.title}`;
-    li.append(strong, document.createTextNode(` — ${item.description}`));
-    flags.append(li);
-  }
-
+  const access = listNode(report.access || []);
+  const flags = listNode((report.flags || []).slice(0, 5).map((flag) => `${flag.severity}: ${flag.title} — ${flag.description}`));
   const recommendation = document.createElement("p");
   recommendation.className = "risk-recommendation";
-  recommendation.textContent = report.recommendation;
+  recommendation.textContent = report.recommendation || "";
 
-  container.append(head, summary, labelNode("Access hints"), access, labelNode("Flags"), flags, labelNode("Recommendation"), recommendation);
+  container.append(head, labelNode("Access hints"), access, labelNode("Flags"), flags, labelNode("Recommendation"), recommendation);
+}
+
+function renderInstallRecipes(container, recipes) {
+  if (!recipes.length) {
+    container.textContent = "No install recipe detected yet.";
+    return;
+  }
+
+  for (const recipe of recipes.slice(0, 2)) {
+    const wrap = document.createElement("div");
+    const label = labelNode(`${recipe.client} · ${recipe.label}`);
+    const code = document.createElement("pre");
+    code.className = "recipe-code";
+    code.textContent = typeof recipe.config === "string" ? recipe.config : JSON.stringify(recipe.config, null, 2);
+    wrap.append(label, code);
+    container.append(wrap);
+  }
+}
+
+function renderMentions(items, countText) {
+  elements.results.replaceChildren();
+  elements.resultCount.textContent = countText;
+
+  if (!items.length) {
+    renderEmpty("No signals found yet. Use “Update sources” to ingest more data.");
+    return;
+  }
+
+  for (const item of items) {
+    const node = elements.mentionTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector("h3").textContent = item.title;
+    node.querySelector(".name").textContent = `${item.eyebrow} · score ${item.score || 0} · ${compactDate(item.created_at)}`;
+    node.querySelector(".description").textContent = stripHtml(item.text || "No text available.").slice(0, 420);
+    addLink(node.querySelector(".link-row"), item.url, "Open source");
+    elements.results.append(node);
+  }
+}
+
+function renderEmpty(message) {
+  const empty = document.createElement("div");
+  empty.className = "empty";
+  empty.textContent = message;
+  elements.results.append(empty);
+}
+
+function signalNode(text) {
+  const node = document.createElement("span");
+  node.className = "signal";
+  node.textContent = text;
+  return node;
 }
 
 function labelNode(text) {
@@ -305,26 +251,15 @@ function labelNode(text) {
   return label;
 }
 
-function renderLatest() {
-  elements.latestList.replaceChildren();
-  if (!state.latest.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "No recent MCPs found in the local index.";
-    elements.latestList.append(empty);
-    return;
+function listNode(items) {
+  const list = document.createElement("ul");
+  list.className = "risk-list";
+  for (const item of items.length ? items : ["No specific signal detected."]) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    list.append(li);
   }
-  for (const server of state.latest) {
-    const item = document.createElement("div");
-    item.className = "latest-item";
-    const button = document.createElement("button");
-    button.textContent = server.title;
-    button.addEventListener("click", () => { elements.queryInput.value = server.name; runSearch(); });
-    const meta = document.createElement("p");
-    meta.textContent = `${server.categories.slice(0, 2).join(", ")} | ${formatDate(server.publishedAt || server.updatedAt)}`;
-    item.append(button, meta);
-    elements.latestList.append(item);
-  }
+  return list;
 }
 
 function addLink(container, url, label) {
@@ -335,11 +270,6 @@ function addLink(container, url, label) {
   link.rel = "noreferrer";
   link.textContent = label;
   container.append(link);
-}
-
-function setMode(active) {
-  for (const button of [elements.databaseModeButton, elements.trendingButton, elements.candidatesButton, elements.mentionsButton]) button.classList.remove("active-mode");
-  active.classList.add("active-mode");
 }
 
 async function getJson(url) {
@@ -353,8 +283,24 @@ async function assertOk(response) {
   return response;
 }
 
-function formatDate(value) {
-  return value ? new Date(value).toLocaleDateString() : "unknown";
+function setBusy(button, text) {
+  button.disabled = true;
+  button.dataset.originalText = button.textContent;
+  button.textContent = text;
+}
+
+function setReady(button, fallback) {
+  button.disabled = false;
+  button.textContent = button.dataset.originalText || fallback;
+}
+
+function compactDate(value) {
+  if (!value) return "unknown";
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatNumber(value) {
+  return Intl.NumberFormat(undefined, { notation: value > 9999 ? "compact" : "standard" }).format(value);
 }
 
 function stripHtml(value) {

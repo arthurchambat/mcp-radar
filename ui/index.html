@@ -4,86 +4,89 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MCP Radar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,650;6..72,750&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Local MCP Library</p>
-          <h1>MCP Radar</h1>
-          <p class="tagline">Discover, compare, and install MCP servers before you trust them with your tools.</p>
-        </div>
-        <div class="top-actions">
-          <button id="ingestButton">Ingest All</button>
-          <button id="enrichButton">Enrich GitHub</button>
-          <button id="syncButton" class="primary">Sync Registry</button>
-        </div>
-      </header>
-
-      <section class="search-panel">
-        <div class="search-row">
-          <input id="queryInput" type="search" placeholder="Describe a workflow: manage GitHub issues, inspect Postgres safely, run ads reports..." autocomplete="off" />
-          <button id="searchButton">Search</button>
-          <button id="recommendButton">Recommend</button>
-        </div>
-        <div class="filters">
-          <label>Category<select id="categoryFilter"><option value="all">All</option></select></label>
-          <label>Install<select id="installFilter"><option value="all">All</option><option value="remote">Remote</option><option value="stdio">Stdio</option><option value="npm">npm</option><option value="pypi">PyPI</option></select></label>
-          <label>Auth<select id="authFilter"><option value="any">Any</option><option value="none">No required auth</option><option value="required">Requires auth</option></select></label>
+      <section class="hero">
+        <div class="kicker">MCP Radar</div>
+        <h1>Inspect MCP servers before giving them access to your tools.</h1>
+        <form id="searchForm" class="search-panel">
+          <input id="queryInput" type="search" placeholder="Ask in English: Find a safe MCP for Postgres, Gmail, GitHub issues..." autocomplete="off" />
+          <button id="searchButton" type="submit">Search</button>
+        </form>
+        <div class="hint-row">
+          <button class="hint" data-query="inspect postgres database safely">postgres risk</button>
+          <button class="hint" data-query="gmail email follow up">gmail access</button>
+          <button class="hint" data-query="github issues pull requests">github issues</button>
+          <button class="hint" data-query="browser automation local tools">browser automation</button>
         </div>
       </section>
 
-      <section class="status-strip">
-        <div><span id="totalCount">0</span><small>indexed MCPs</small></div>
+      <section class="stats-bar" aria-label="Library stats">
+        <div><span id="totalCount">0</span><small>MCPs</small></div>
         <div><span id="mentionCount">0</span><small>mentions</small></div>
         <div><span id="candidateCount">0</span><small>candidates</small></div>
         <div><span id="syncedAt">Never</span><small>last sync</small></div>
       </section>
 
-      <section class="content-grid">
+      <section class="library-head">
         <div>
-          <div class="section-heading"><h2>Results</h2><span id="resultCount">0 found</span></div>
-          <div class="mode-row">
-            <button id="databaseModeButton" class="small-button active-mode">Database Search</button>
-            <button id="trendingButton" class="small-button">Trending</button>
-            <button id="candidatesButton" class="small-button">Unregistered Candidates</button>
-            <button id="mentionsButton" class="small-button">Mentions</button>
-          </div>
-          <div id="results" class="cards"></div>
+          <p class="section-label">Library</p>
+          <h2 id="libraryTitle">Best matches</h2>
         </div>
-        <aside>
-          <div class="section-heading"><h2>New MCPs</h2><span>30 days</span></div>
-          <div id="latestList" class="latest-list"></div>
-          <div class="section-heading aside-heading"><h2>Digest</h2><button id="digestButton" class="small-button">Generate</button></div>
-          <pre id="digestOutput" class="digest-output">Weekly digest will appear here.</pre>
-          <div class="section-heading aside-heading"><h2>Sources</h2><button id="sourcesButton" class="small-button">Check</button></div>
-          <div id="sourcesList" class="sources-list"></div>
-        </aside>
+        <span id="resultCount">0 found</span>
       </section>
+
+      <section id="results" class="library-grid"></section>
+
+      <details class="maintenance">
+        <summary>Update sources</summary>
+        <div class="maintenance-actions">
+          <button id="ingestButton">Ingest all sources</button>
+          <button id="syncButton">Sync registry only</button>
+          <button id="trendingButton">Show trending</button>
+          <button id="candidatesButton">Show candidates</button>
+          <button id="mentionsButton">Show mentions</button>
+        </div>
+      </details>
     </main>
 
     <template id="cardTemplate">
       <article class="card">
-        <div class="card-main"><div><h3></h3><p class="name"></p></div><span class="auth-pill"></span></div>
+        <div class="card-top">
+          <div>
+            <h3></h3>
+            <p class="name"></p>
+          </div>
+          <span class="risk-pill"></span>
+        </div>
         <p class="description"></p>
-        <div class="score-grid"></div>
-        <div class="tag-row"></div>
-        <div class="meta-row"></div>
-        <div class="link-row"></div>
+        <div class="signal-row"></div>
+        <p class="risk-summary"></p>
         <details class="risk-details"><summary>Risk report</summary><div class="risk-report"></div></details>
-        <details class="install-details"><summary>Install recipes</summary><div class="recipes"></div></details>
+        <details class="install-details"><summary>Install recipe</summary><div class="recipes"></div></details>
+        <div class="link-row"></div>
       </article>
     </template>
 
     <template id="mentionTemplate">
       <article class="card mention-card">
-        <h3></h3>
+        <div class="card-top">
+          <div>
+            <h3></h3>
+            <p class="name"></p>
+          </div>
+          <span class="risk-pill neutral">signal</span>
+        </div>
         <p class="description"></p>
-        <div class="meta-row"></div>
         <div class="link-row"></div>
       </article>
     </template>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>
